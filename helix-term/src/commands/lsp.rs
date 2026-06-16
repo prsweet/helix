@@ -1456,3 +1456,105 @@ fn compute_inlay_hints_for_view(
 
     Some(callback)
 }
+
+pub fn compute_semantic_tokens_for_all_views(editor: &mut Editor, jobs: &mut crate::job::Jobs) {
+    for doc in editor.documents_mut() {
+        if doc.semantic_tokens_outdated {
+            if let Some(callback) = compute_semantic_tokens_for_doc(doc) {
+                jobs.callback(callback);
+            }
+        }
+    }
+}
+
+fn compute_semantic_tokens_for_doc(
+    doc: &Document,
+) -> Option<std::pin::Pin<Box<impl Future<Output = Result<crate::job::Callback, anyhow::Error>>>>> {
+    let doc_id = doc.id();
+
+    let language_server = doc
+        .language_servers_with_feature(LanguageServerFeature::SemanticTokens)
+        .next()?;
+
+    let offset_encoding = language_server.offset_encoding();
+    let syn_loader = doc.syn_loader.clone();
+
+    let future = language_server.text_document_semantic_tokens(doc.identifier())?;
+
+    let capabilities = language_server.capabilities();
+    let token_types = match &capabilities.semantic_tokens_provider {
+        Some(lsp::SemanticTokensServerCapabilities::SemanticTokensOptions(opts)) => {
+            opts.legend.token_types.clone()
+        }
+        Some(lsp::SemanticTokensServerCapabilities::SemanticTokensRegistrationOptions(opts)) => {
+            opts.semantic_tokens_options.legend.token_types.clone()
+        }
+        _ => Vec::new(),
+    };
+
+    let callback = super::make_job_callback(
+        future,
+        move |editor, _compositor, response: Option<lsp::SemanticTokensResult>| {
+            let doc = match editor.documents.get_mut(&doc_id) {
+                Some(doc) => doc,
+                None => return,
+            };
+
+            let mut semantic_highlights = Vec::new();
+
+            if let Some(result) = response {
+                let tokens_data = match result {
+                    lsp::SemanticTokensResult::Tokens(tokens) => tokens.data,
+                    lsp::SemanticTokensResult::Partial(partial) => partial.data,
+                };
+
+                let doc_text = doc.text();
+                let syn_loader = syn_loader.load();
+
+                let mut current_line = 0;
+                let mut current_start = 0;
+
+                for token in tokens_data {
+                    current_line += token.delta_line;
+                    if token.delta_line == 0 {
+                        current_start += token.delta_start;
+                    } else {
+                        current_start = token.delta_start;
+                    }
+
+                    let char_idx = match helix_lsp::util::lsp_pos_to_pos(
+                        doc_text,
+                        lsp::Position { line: current_line, character: current_start },
+                        offset_encoding,
+                    ) {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
+                    let end_idx = match helix_lsp::util::lsp_pos_to_pos(
+                        doc_text,
+                        lsp::Position { line: current_line, character: current_start + token.length },
+                        offset_encoding,
+                    ) {
+                        Some(idx) => idx,
+                        None => continue,
+                    };
+
+                    if let Some(token_type_name) = token_types.get(token.token_type as usize) {
+                        if let Some(highlight) = syn_loader.highlight_for_lsp_token(token_type_name.as_str()) {
+                            semantic_highlights.push((highlight, char_idx..end_idx));
+                        }
+                    }
+                }
+            }
+
+            // Sort semantic highlights by starting range for fast binary search later
+            semantic_highlights.sort_by_key(|(_, range)| range.start);
+
+            doc.semantic_tokens = semantic_highlights;
+            doc.semantic_tokens_outdated = false;
+        },
+    );
+
+    Some(callback)
+}

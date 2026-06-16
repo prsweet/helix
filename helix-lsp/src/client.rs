@@ -404,6 +404,7 @@ impl Client {
                         | CallHierarchyServerCapability::Options(_)
                 )
             ),
+            LanguageServerFeature::SemanticTokens => capabilities.semantic_tokens_provider.is_some(),
         }
     }
 
@@ -738,6 +739,55 @@ impl Client {
                         }),
                         hierarchical_document_symbol_support: Some(false),
                         ..Default::default()
+                    }),
+                    semantic_tokens: Some(lsp::SemanticTokensClientCapabilities {
+                        dynamic_registration: Some(false),
+                        requests: lsp::SemanticTokensClientCapabilitiesRequests {
+                            range: Some(false),
+                            full: Some(lsp::SemanticTokensFullOptions::Bool(true)),
+                        },
+                        token_types: vec![
+                            lsp::SemanticTokenType::NAMESPACE,
+                            lsp::SemanticTokenType::TYPE,
+                            lsp::SemanticTokenType::CLASS,
+                            lsp::SemanticTokenType::ENUM,
+                            lsp::SemanticTokenType::INTERFACE,
+                            lsp::SemanticTokenType::STRUCT,
+                            lsp::SemanticTokenType::TYPE_PARAMETER,
+                            lsp::SemanticTokenType::PARAMETER,
+                            lsp::SemanticTokenType::VARIABLE,
+                            lsp::SemanticTokenType::PROPERTY,
+                            lsp::SemanticTokenType::ENUM_MEMBER,
+                            lsp::SemanticTokenType::EVENT,
+                            lsp::SemanticTokenType::FUNCTION,
+                            lsp::SemanticTokenType::METHOD,
+                            lsp::SemanticTokenType::MACRO,
+                            lsp::SemanticTokenType::KEYWORD,
+                            lsp::SemanticTokenType::MODIFIER,
+                            lsp::SemanticTokenType::COMMENT,
+                            lsp::SemanticTokenType::STRING,
+                            lsp::SemanticTokenType::NUMBER,
+                            lsp::SemanticTokenType::REGEXP,
+                            lsp::SemanticTokenType::OPERATOR,
+                            lsp::SemanticTokenType::DECORATOR,
+                        ],
+                        token_modifiers: vec![
+                            lsp::SemanticTokenModifier::DECLARATION,
+                            lsp::SemanticTokenModifier::DEFINITION,
+                            lsp::SemanticTokenModifier::READONLY,
+                            lsp::SemanticTokenModifier::STATIC,
+                            lsp::SemanticTokenModifier::DEPRECATED,
+                            lsp::SemanticTokenModifier::ABSTRACT,
+                            lsp::SemanticTokenModifier::ASYNC,
+                            lsp::SemanticTokenModifier::MODIFICATION,
+                            lsp::SemanticTokenModifier::DOCUMENTATION,
+                            lsp::SemanticTokenModifier::DEFAULT_LIBRARY,
+                        ],
+                        formats: vec![lsp::TokenFormat::RELATIVE],
+                        overlapping_token_support: Some(false),
+                        multiline_token_support: Some(false),
+                        server_cancel_support: Some(false),
+                        augments_syntax_tokens: Some(true),
                     }),
                     ..Default::default()
                 }),
@@ -1233,6 +1283,26 @@ impl Client {
         };
 
         Some(self.call::<lsp::request::InlayHintRequest>(params))
+    }
+
+    pub fn text_document_semantic_tokens(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+    ) -> Option<impl Future<Output = Result<Option<lsp::SemanticTokensResult>>>> {
+        let capabilities = self.capabilities.get().unwrap();
+
+        match capabilities.semantic_tokens_provider {
+            Some(_) => (),
+            _ => return None,
+        }
+
+        let params = lsp::SemanticTokensParams {
+            work_done_progress_params: Default::default(),
+            partial_result_params: Default::default(),
+            text_document,
+        };
+
+        Some(self.call::<lsp::request::SemanticTokensFullRequest>(params))
     }
 
     pub fn text_document_document_color(

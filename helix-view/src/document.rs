@@ -156,6 +156,7 @@ pub struct Document {
     /// Set to `true` when the document is updated, reset to `false` on the next inlay hints
     /// update from the LSP
     pub inlay_hints_oudated: bool,
+    pub semantic_tokens_outdated: bool,
 
     path: Option<PathBuf>,
     relative_path: OnceCell<Option<PathBuf>>,
@@ -224,7 +225,10 @@ pub struct Document {
     // NOTE: this field should eventually go away - we should use the Editor's syn_loader instead
     // of storing a copy on every doc. Then we can remove the surrounding `Arc` and use the
     // `ArcSwap` directly.
-    syn_loader: Arc<ArcSwap<syntax::Loader>>,
+    pub syn_loader: Arc<ArcSwap<syntax::Loader>>,
+
+    /// LSP semantic tokens highlights for the document.
+    pub semantic_tokens: Vec<(helix_core::syntax::Highlight, std::ops::Range<usize>)>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -732,6 +736,7 @@ impl Document {
             selections: HashMap::default(),
             inlay_hints: HashMap::default(),
             inlay_hints_oudated: false,
+            semantic_tokens_outdated: true,
             view_data: Default::default(),
             indent_style: DEFAULT_INDENT,
             editor_config: EditorConfig::default(),
@@ -764,6 +769,7 @@ impl Document {
             previous_diagnostic_ids: HashMap::new(),
             pull_diagnostic_controller: TaskController::new(),
             document_link_controller: TaskController::new(),
+            semantic_tokens: Vec::new(),
         }
     }
 
@@ -1563,6 +1569,22 @@ impl Document {
         };
 
         self.inlay_hints_oudated = true;
+        self.semantic_tokens_outdated = true;
+
+        let text_len = self.text.len_chars();
+        for (_, range) in &mut self.semantic_tokens {
+            changes.update_positions(
+                [
+                    (&mut range.start, Assoc::After),
+                    (&mut range.end, Assoc::After),
+                ]
+                .into_iter(),
+            );
+        }
+        self.semantic_tokens.retain(|(_, range)| {
+            range.start < text_len && range.end <= text_len && range.start < range.end
+        });
+
         for text_annotation in self.inlay_hints.values_mut() {
             let DocumentInlayHints {
                 id: _,

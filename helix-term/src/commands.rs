@@ -406,6 +406,7 @@ impl MappableCommand {
         file_explorer, "Open file explorer in workspace root",
         file_explorer_in_current_buffer_directory, "Open file explorer at current buffer's directory",
         file_explorer_in_current_directory, "Open file explorer at current working directory",
+        toggle_tree_explorer, "Toggle tree file explorer",
         code_action, "Perform code action",
         buffer_picker, "Open buffer picker",
         jumplist_picker, "Open jumplist picker",
@@ -3264,6 +3265,25 @@ fn file_explorer_in_current_directory(cx: &mut Context) {
     if let Ok(picker) = ui::file_explorer(cwd, cx.editor) {
         cx.push_layer(Box::new(overlaid(picker)));
     }
+}
+
+fn toggle_tree_explorer(cx: &mut Context) {
+    let callback: crate::compositor::Callback = Box::new(|compositor, _ctx| {
+        if let Some(explorer) = compositor.find_id::<ui::TreeExplorer>("tree-explorer") {
+            // It is open. Toggle focus!
+            explorer.focused = !explorer.focused;
+            if explorer.focused {
+                explorer.refresh();
+            }
+        } else {
+            // It is not open. Create it!
+            let root = helix_core::find_workspace().0;
+            let mut explorer = ui::TreeExplorer::new(root);
+            explorer.focused = true;
+            compositor.push(Box::new(explorer));
+        }
+    });
+    cx.callback.push(callback);
 }
 
 struct PathStyleConfig {

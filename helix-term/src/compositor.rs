@@ -182,14 +182,52 @@ impl Compositor {
     }
 
     pub fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        let has_explorer = self.layers.iter().any(|l| l.id() == Some("tree-explorer"));
+        let sidebar_width = if has_explorer { 35 } else { 0 };
+
         for layer in &mut self.layers {
-            layer.render(area, surface, cx);
+            let layer_id = layer.id();
+            let layer_area = if layer_id == Some("tree-explorer") {
+                Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: sidebar_width,
+                    height: area.height,
+                }
+            } else {
+                Rect {
+                    x: area.x + sidebar_width,
+                    y: area.y,
+                    width: area.width.saturating_sub(sidebar_width),
+                    height: area.height,
+                }
+            };
+            layer.render(layer_area, surface, cx);
         }
     }
 
     pub fn cursor(&self, area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        let has_explorer = self.layers.iter().any(|l| l.id() == Some("tree-explorer"));
+        let sidebar_width = if has_explorer { 35 } else { 0 };
+
         for layer in self.layers.iter().rev() {
-            if let (Some(pos), kind) = layer.cursor(area, editor) {
+            let layer_id = layer.id();
+            let layer_area = if layer_id == Some("tree-explorer") {
+                Rect {
+                    x: area.x,
+                    y: area.y,
+                    width: sidebar_width,
+                    height: area.height,
+                }
+            } else {
+                Rect {
+                    x: area.x + sidebar_width,
+                    y: area.y,
+                    width: area.width.saturating_sub(sidebar_width),
+                    height: area.height,
+                }
+            };
+            if let (Some(pos), kind) = layer.cursor(layer_area, editor) {
                 return (Some(pos), kind);
             }
         }

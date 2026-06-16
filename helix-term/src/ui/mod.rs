@@ -1,6 +1,7 @@
 mod completion;
 mod document;
 pub(crate) mod editor;
+pub mod explorer;
 mod info;
 pub mod lsp;
 mod markdown;
@@ -29,6 +30,7 @@ pub use popup::Popup;
 pub use prompt::{Prompt, PromptEvent};
 pub use select::Select;
 pub use spinner::{ProgressSpinners, Spinner};
+pub use explorer::TreeExplorer;
 pub use text::Text;
 
 use helix_view::Editor;

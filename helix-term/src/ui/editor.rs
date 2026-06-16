@@ -127,6 +127,10 @@ impl EditorView {
             &text_annotations,
         ));
 
+        if let Some(overlay) = Self::doc_semantic_highlights(doc, view_offset.anchor, inner.height) {
+            overlays.push(overlay);
+        }
+
         if doc
             .language_config()
             .and_then(|config| config.rainbow_brackets)
@@ -344,6 +348,58 @@ impl EditorView {
         let range = start..visible_range.end as u32;
 
         Some(syntax.rainbow_highlights(text, theme.rainbow_length(), loader, range))
+    }
+
+    pub fn doc_semantic_highlights(
+        doc: &Document,
+        anchor: usize,
+        height: u16,
+    ) -> Option<OverlayHighlights> {
+        if doc.semantic_tokens.is_empty() {
+            return None;
+        }
+
+        let text = doc.text().slice(..);
+        let row = text.char_to_line(anchor.min(text.len_chars()));
+        let viewport_range = Self::viewport_byte_range(text, row, height);
+        let start_char = text.byte_to_char(viewport_range.start);
+        let end_char = text.byte_to_char(viewport_range.end);
+
+        // Binary search for the first semantic token starting at or after `start_char`
+        let search_idx = match doc.semantic_tokens.binary_search_by(|(_, r)| {
+            if r.end <= start_char {
+                std::cmp::Ordering::Less
+            } else if r.start >= end_char {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }) {
+            Ok(idx) => {
+                // We found a match, but there could be earlier overlapping or matching tokens, so trace back
+                let mut first = idx;
+                while first > 0 && doc.semantic_tokens[first - 1].1.end > start_char {
+                    first -= 1;
+                }
+                first
+            }
+            Err(idx) => idx,
+        };
+
+        let mut highlights = Vec::new();
+        for i in search_idx..doc.semantic_tokens.len() {
+            let (highlight, range) = &doc.semantic_tokens[i];
+            if range.start >= end_char {
+                break;
+            }
+            highlights.push((*highlight, range.clone()));
+        }
+
+        if highlights.is_empty() {
+            return None;
+        }
+
+        Some(OverlayHighlights::Heterogenous { highlights })
     }
 
     /// Get highlight spans for document diagnostics
@@ -1159,6 +1215,7 @@ impl EditorView {
 
     pub fn handle_idle_timeout(&mut self, cx: &mut commands::Context) -> EventResult {
         commands::compute_inlay_hints_for_all_views(cx.editor, cx.jobs);
+        commands::compute_semantic_tokens_for_all_views(cx.editor, cx.jobs);
 
         EventResult::Ignored(None)
     }
@@ -1715,6 +1772,10 @@ impl Component for EditorView {
             }
             cursor => cursor,
         }
+    }
+
+    fn id(&self) -> Option<&'static str> {
+        Some("editor")
     }
 }
 

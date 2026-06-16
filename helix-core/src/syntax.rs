@@ -432,6 +432,27 @@ impl Loader {
         self.scopes.load()
     }
 
+    pub fn highlight_for_lsp_token(&self, token_type: &str) -> Option<Highlight> {
+        let scope = match token_type {
+            "namespace" => "namespace",
+            "type" | "class" | "enum" | "interface" | "struct" | "typeParameter" => "type",
+            "parameter" => "variable.parameter",
+            "variable" => "variable",
+            "property" => "variable.other.member",
+            "enumMember" => "constant",
+            "function" | "method" => "function",
+            "macro" => "function.macro",
+            "keyword" => "keyword",
+            "comment" => "comment",
+            "string" => "string",
+            "number" => "constant.numeric",
+            "operator" => "operator",
+            _ => return None,
+        };
+        let scopes = self.scopes();
+        scopes.iter().position(|s| s == scope).map(|idx| Highlight::new(idx as u32))
+    }
+
     pub fn set_scopes(&self, scopes: Vec<String>) {
         self.scopes.store(Arc::new(scopes));
 
